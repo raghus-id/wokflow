@@ -4,6 +4,11 @@ name: test workflow
 
 # Controls when the workflow will run
 on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -18,8 +23,44 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # Runs a single command using the runners shell
+      # Validate fch_ingest files are in ingest folder
+      - name: Validate fch_ingest files location
+        run: |
+          # Get changed files based on event type
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          else
+            # For push events, compare with previous commit
+            if [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
+            else
+              # Initial push - just check current files
+              CHANGED_FILES=$(git ls-files)
+            fi
+          fi
+
+          # Check if any fch_ingest files are outside ingest folder
+          INVALID_FILES=""
+          while IFS= read -r file; do
+            if [[ "$file" == *"fch_ingest"* ]]; then
+              if [[ ! "$file" =~ ^ingest/ ]]; then
+                INVALID_FILES="$INVALID_FILES\n$file"
+              fi
+            fi
+          done <<< "$CHANGED_FILES"
+
+          if [ -n "$INVALID_FILES" ]; then
+            echo "❌ ERROR: Files starting with 'fch_ingest' must be in the 'ingest' folder:"
+            echo -e "$INVALID_FILES"
+            exit 1
+          fi
+
+          echo "✅ All fch_ingest files are in the correct location"
+
+      # Runs a one-line script
       - name: Run a one-line script
         run: echo Hello, world!
 
